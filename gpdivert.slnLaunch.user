@@ -1,0 +1,17 @@
+[
+  {
+    "Name": "ALL",
+    "Projects": [
+      {
+        "Path": "gpdiverServer\\gpdiverServer.vcxproj",
+        "Action": "Start",
+        "DebugTarget": "Local Windows Debugger"
+      },
+      {
+        "Path": "gpdivert\\gpdivert.vcxproj",
+        "Action": "Start",
+        "DebugTarget": "Local Windows Debugger"
+      }
+    ]
+  }
+]
