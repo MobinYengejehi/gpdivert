@@ -330,7 +330,144 @@ void Network::PacketManager::PacketListener()
 				goto PacketInject;
 			}
 
-			L_INFO << "packet process is : " << sourceProcess << " | " << destinationProcess << L_END;
+			{
+				L_INFO << "packet is : " << std::string((const char*)payload, payloadLength) << " | " << payloadLength << " | " << address.Outbound << L_END;
+			}
+
+			constexpr size_t extraHeaderSize = sizeof(PacketExtraHeader);
+
+			if (address.Outbound)
+			{
+				std::string socketHost = "";
+				PortNumber  socketPort = 0;
+
+				Process::ProcessInfo* processInfo = Process::GetProcessInfo(sourceProcess.empty() ? destinationProcess : sourceProcess);
+
+				if (processInfo == NULL)
+				{
+					goto PacketInject;
+				}
+
+				for (const auto& protocol : processInfo->protocols)
+				{
+					if (
+						(protocol.id == NETWORK_TCP_PROTOCOL_ID && tcpHeader != NULL) ||
+						(protocol.id == NETWORK_UDP_PROTOCOL_ID && udpHeader != NULL)
+					)
+					{
+						socketHost = protocol.serverHost;
+						socketPort = protocol.serverPort;
+
+						break;
+					}
+				}
+
+				if (socketHost.empty() || socketPort == 0)
+				{
+					goto PacketInject;
+				}
+
+				UINT totalHeaderLength = ipHeader->HdrLength * 4 + (
+					tcpHeader ?
+					(tcpHeader->HdrLength >> 4) * 4 :
+					(
+						udpHeader ?
+						sizeof(WINDIVERT_UDPHDR) :
+						0
+					)
+				);
+
+				memmove(packet + totalHeaderLength + extraHeaderSize, packet + totalHeaderLength, payloadLength);
+
+				PacketExtraHeader extraHeader;
+				extraHeader.identifier = GP_DIVERT_HEADER;
+				extraHeader.originalIp = ipHeader->DstAddr;
+				extraHeader.originalPort = destinationPort;
+				extraHeader.socketPort = socketPort;
+
+				inet_pton(AF_INET, socketHost.c_str(), &extraHeader.socketHost);
+
+				memcpy(packet + totalHeaderLength, &extraHeader, extraHeaderSize);
+
+				USHORT oldIpLength = ntohs(ipHeader->Length);
+				
+				ipHeader->Length = htons(oldIpLength + extraHeaderSize);
+
+				if (udpHeader != NULL)
+				{
+					USHORT oldUdpLength = ntohs(udpHeader->Length);
+
+					udpHeader->Length = htons(oldUdpLength + extraHeaderSize);
+				}
+
+				payloadLength += extraHeaderSize;
+				packetLength += extraHeaderSize;
+
+				inet_pton(AF_INET, socketHost.c_str(), &ipHeader->DstAddr);
+
+				if (tcpHeader != NULL)
+				{
+					tcpHeader->DstPort = htons(socketPort);
+				}
+				else if (udpHeader != NULL)
+				{
+					udpHeader->DstPort = htons(socketPort);
+				}
+
+				/*
+				if (packetLength + extraHeaderSize > NETWORK_MAX_PACKET_SIZE)
+				{
+					goto PacketInject;
+				}
+
+				memmove(packet + totalHeaderLength + extraHeaderSize, packet + totalHeaderLength, payloadLength);
+
+				PacketExtraHeader extraInfo;
+				extraInfo.identifier = GP_DIVERT_HEADER;
+				extraInfo.originalIp = ipHeader->DstAddr;
+				extraInfo.originalPort = destinationPort;
+				extraInfo.socketPort = socketPort;
+
+				inet_pton(AF_INET, socketHost.c_str(), &extraInfo.socketHost);
+
+				memcpy(packet + totalHeaderLength, &extraInfo, extraHeaderSize);
+
+				USHORT oldIpLength = ntohs(ipHeader->Length);
+
+				ipHeader->Length = htons(oldIpLength + extraHeaderSize);
+
+				if (udpHeader != NULL)
+				{
+					USHORT oldUdpLength = ntohs(udpHeader->Length);
+
+					udpHeader->Length = htons(oldUdpLength + extraHeaderSize);
+				}
+
+				packetLength += extraHeaderSize;
+
+				inet_pton(AF_INET, socketHost.c_str(), &ipHeader->DstAddr);
+
+				if (tcpHeader != NULL)
+				{
+					tcpHeader->DstPort = htons(socketPort);
+				}
+				else if (udpHeader != NULL)
+				{
+					udpHeader->DstPort = htons(socketPort);
+				}
+
+				L_INFO << "sending outbound game packet '" << destinationProcess << "' to '" << socketHost << ":" << socketPort << "' | orig : '" << ConvertIntegerAddressToString(extraInfo.originalIp) << ":" << extraInfo.originalPort << "'" << L_END;
+				*/
+			}
+			else
+			{
+
+			}
+
+			/*{
+				L_INFO << "packet is : " << std::string((const char*)payload, payloadLength) << " | " << payloadLength << " | " << address.Outbound << L_END;
+				goto PacketInject;
+			}
 
 			constexpr size_t extraHeaderSize = sizeof(PacketExtraHeader);
 
@@ -474,7 +611,7 @@ void Network::PacketManager::PacketListener()
 				}
 
 				L_INFO << "inbound payload is : " << ConvertIntegerAddressToString(ipHeader->SrcAddr) << " | " << ConvertIntegerAddressToString(ipHeader->DstAddr) << " | " << std::string((char*)payload, 4) << " | " << std::string((char*)(payload + extraHeaderSize), 4) << " | " << payloadLength << L_END;
-			}
+			}*/ 
 		}
 
 	PacketInject:

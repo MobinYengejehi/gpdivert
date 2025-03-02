@@ -33,6 +33,8 @@ void UdpServerProcess()
 
 	while (true)
 	{
+		std::cout << "-----------------------------------------------------------------------------------" << std::endl;
+
 		clientAddressLength = sizeof(clientAddress);
 
 		int receivedBytes = recvfrom(UdpServerSocket, packet, sizeof(packet), 0, (sockaddr*)&clientAddress, &clientAddressLength);
@@ -42,70 +44,75 @@ void UdpServerProcess()
 			continue;
 		}
 
+		L_INFO << "total packet is : " << std::string(packet, receivedBytes) << " | " << receivedBytes << L_END;
+
+		constexpr size_t extraHeaderSize = sizeof(Network::PacketExtraHeader);
+
 		Network::PacketExtraHeader extraInfo;
-		ZeroMemory(&extraInfo, sizeof(extraInfo));
+		ZeroMemory(&extraInfo, extraHeaderSize);
 
-		char* originalPayload = packet;
-		int   originalPayloadLength = receivedBytes;
+		char* originalPayload = NULL;
+		int   originalPayloadLength = 0;
 
-		if (receivedBytes >= sizeof(extraInfo))
+		if (receivedBytes >= extraHeaderSize)
 		{
-			memcpy(&extraInfo, packet, sizeof(extraInfo));
+			memcpy(&extraInfo, packet, extraHeaderSize);
 
-			originalPayloadLength = Network::ClearGPDivertHeaders((UINT8*)originalPayload, originalPayloadLength);
+			originalPayload = packet + extraHeaderSize;
+			originalPayloadLength = receivedBytes - extraHeaderSize;
 		}
 
-		UINT32 originalServerIp = extraInfo.originalIp;
-		USHORT originalServerPort = extraInfo.originalPort;
-
-		if (originalServerIp == 0 || originalServerPort == 0)
+		if (!originalPayload || originalPayloadLength < 1)
 		{
 			continue;
 		}
 
-		L_INFO << "packet is : " << packet << L_END;
-		L_INFO << "original payload : " << originalPayload << L_END;
+		if (extraInfo.identifier != GP_DIVERT_HEADER)
+		{
+			continue;
+		}
 
-		sockaddr_in originalAddress;
-		originalAddress.sin_family = AF_INET;
-		originalAddress.sin_port = htons(originalServerPort);
+		decltype(extraInfo.originalIp)   originalIpAddress = extraInfo.originalIp;
+		decltype(extraInfo.originalPort) originalPort = extraInfo.originalPort;
 
-		inet_pton(AF_INET, Network::ConvertIntegerAddressToString(originalServerIp).c_str(), &originalAddress.sin_addr);
+		L_INFO << "came packet is : " << std::string(originalPayload, originalPayloadLength) << " | " << originalPayloadLength << L_END;
+		L_INFO << "send payload to : " << Network::ConvertIntegerAddressToString(originalIpAddress) << ":" << originalPort << " | " << Network::ConvertIntegerAddressToString(extraInfo.socketHost) << ":" << extraInfo.socketPort << L_END;
 
-		sendto(UdpServerSocket, originalPayload, originalPayloadLength, 0, (sockaddr*)&originalAddress, sizeof(originalAddress));
+		if (originalIpAddress == 0 || originalPort == 0)
+		{
+			continue;
+		}
+
+		sockaddr_in originalServerAddress;
+		originalServerAddress.sin_family = AF_INET;
+		originalServerAddress.sin_port = htons(originalPort);
+
+		inet_pton(originalServerAddress.sin_family, Network::ConvertIntegerAddressToString(originalIpAddress).c_str(), &originalServerAddress.sin_addr);
+
+		sendto(UdpServerSocket, originalPayload, originalPayloadLength, 0, (sockaddr*)&originalServerAddress, sizeof(originalServerAddress));
 
 		sockaddr_in originalResponseAddress;
 		int         originalResponseAddressLength = sizeof(originalResponseAddress);
 
-		char originalResponseBuffer[sizeof(packet)];
-		memset(originalResponseBuffer, 0, sizeof(originalResponseBuffer));
+		char originalResponse[sizeof(packet)];
 
-		int responseReceivedBytes = recvfrom(UdpServerSocket, originalResponseBuffer, sizeof(originalResponseBuffer), 0, (sockaddr*)&originalResponseAddress, &originalResponseAddressLength);
+		int originalResponseLength = recvfrom(UdpServerSocket, originalResponse, sizeof(originalResponse), 0, (sockaddr*)&originalResponseAddress, &originalResponseAddressLength);
 
-		if (responseReceivedBytes < 1)
+		if (originalResponseLength < 1)
 		{
 			continue;
 		}
-		
-		char* filteredOriginalResponseBuffer = originalResponseBuffer;
-		int   filteredOriginalResponseBufferLength = responseReceivedBytes;
 
-		if (filteredOriginalResponseBufferLength > sizeof(extraInfo))
-		{
-			filteredOriginalResponseBufferLength = Network::ClearGPDivertHeaders((UINT8*)filteredOriginalResponseBuffer, filteredOriginalResponseBufferLength);
-		}
+		extraInfo.identifier = GP_SERVER_HEADER;
 
-		L_INFO << "original response before change : " << filteredOriginalResponseBuffer << L_END;
+		memmove(originalResponse + extraHeaderSize, originalResponse, originalResponseLength);
+		memcpy(originalResponse, &extraInfo, extraHeaderSize);
 
-		memmove(filteredOriginalResponseBuffer + sizeof(extraInfo), filteredOriginalResponseBuffer, filteredOriginalResponseBufferLength);
-		memcpy(filteredOriginalResponseBuffer, &extraInfo, sizeof(extraInfo));
+		originalResponseLength += extraHeaderSize;
 
-		L_INFO << "original response after change : " << filteredOriginalResponseBuffer << L_END;
+		L_INFO << "original response is : " << std::string(originalResponse, originalResponseLength) << " | " << originalResponseLength << L_END;
 
-		sendto(UdpServerSocket, filteredOriginalResponseBuffer, filteredOriginalResponseBufferLength, 0, (sockaddr*)&clientAddress, clientAddressLength);
-
-		L_INFO << "payload came from client and original host is : " << Network::ConvertIntegerAddressToString(extraInfo.socketHost) << ":" << extraInfo.socketPort << " | " << Network::ConvertIntegerAddressToString(extraInfo.originalIp) << ":" << extraInfo.originalPort << L_END;
-		L_INFO << "sending data to client: " << filteredOriginalResponseBuffer << " | " << filteredOriginalResponseBufferLength << L_END;
+		sendto(UdpServerSocket, originalResponse, originalResponseLength, 0, (sockaddr*)&clientAddress, clientAddressLength);
 	}
 }
 

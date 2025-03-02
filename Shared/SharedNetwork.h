@@ -12,6 +12,7 @@
 #define NETWORK_UDP_PROTOCOL_ID 17
 
 #define GP_DIVERT_HEADER (unsigned int)(0x76647067)
+#define GP_SERVER_HEADER (unsigned int)(0x76647367)
 
 namespace Network
 {
